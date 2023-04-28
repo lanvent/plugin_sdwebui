@@ -1,18 +1,21 @@
 # encoding:utf-8
 
+import io
 import json
 import os
+
+import webuiapi
+import langid
+from bridge.bridge import Bridge
+import plugins
 from bridge.context import ContextType
 from bridge.reply import Reply, ReplyType
-from config import conf
-import plugins
-from plugins import *
 from common.log import logger
-import webuiapi
-import io
+from config import conf
+from plugins import *
 
 
-@plugins.register(name="sdwebui", desc="利用stable-diffusion webui来画图", version="2.0", author="lanvent")
+@plugins.register(name="sdwebui", desc="利用stable-diffusion webui来画图", version="2.1", author="lanvent")
 class SDWebUI(Plugin):
     def __init__(self):
         super().__init__()
@@ -58,7 +61,7 @@ class SDWebUI(Plugin):
                 prompt = ""
 
             keywords = keywords.split()
-
+            unused_keywords = []
             if "help" in keywords or "帮助" in keywords:
                 reply.type = ReplyType.INFO
                 reply.content = self.get_help_text(verbose = True)
@@ -77,11 +80,27 @@ class SDWebUI(Plugin):
                             matched = True
                             break  # 一个关键词只匹配一个规则
                     if not matched:
-                        logger.warning("[SD] keyword not matched: %s" % keyword)
+                        unused_keywords.append(keyword)
+                        logger.info("[SD] keyword not matched: %s" % keyword)
                 
                 params = {**self.default_params, **rule_params}
                 options = {**self.default_options, **rule_options}
-                params["prompt"] = params.get("prompt", "")+f", {prompt}"
+                params["prompt"] = params.get("prompt", "")
+                if unused_keywords:
+                    if prompt:
+                        prompt += f", {', '.join(unused_keywords)}"
+                    else:
+                        prompt = ', '.join(unused_keywords)
+                if prompt:
+                    lang = langid.classify(prompt)[0]
+                    if lang != "en":
+                        logger.info("[SD] translate prompt from {} to en".format(lang))
+                        try:
+                            prompt = Bridge().fetch_translate(prompt, to_lang= "en")
+                        except Exception as e:
+                            logger.info("[SD] translate failed: {}".format(e))
+                        logger.info("[SD] translated prompt={}".format(prompt))
+                    params["prompt"] += f", {prompt}"
                 if len(options) > 0:
                     logger.info("[SD] cover options={}".format(options))
                     self.api.set_options(options)
